@@ -6,7 +6,7 @@ import ctypes
 from datetime import datetime
 from typing import Optional
 
-from config import PRODUCTIVE_TAB_MARKERS, BROWSER_SUFFIXES
+from core.config import PRODUCTIVE_TAB_MARKERS, BROWSER_SUFFIXES
 
 
 def calc_level(points: int) -> int:
@@ -27,9 +27,7 @@ def format_datetime(ts: float) -> str:
 
 
 def is_productive_tab(title: str) -> bool:
-    """Проверить, является ли заголовок вкладки продуктивным (Бекофис Панорам)."""
     lower = title.lower()
-    # Содержит "панорам" и один из маркеров (теперь включает "яндекс")
     return "панорам" in lower and any(m in lower for m in PRODUCTIVE_TAB_MARKERS)
 
 

@@ -6,11 +6,10 @@ import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from config import PARTICLE_COLORS
+from core.config import PARTICLE_COLORS
 
 
 class Particle:
-    """Анимированная частица для визуального эффекта."""
     __slots__ = ("x", "y", "vx", "vy", "life", "max_life", "color", "size")
 
     def __init__(self, x: float, y: float) -> None:
@@ -26,7 +25,6 @@ class Particle:
         self.size = random.uniform(3, 6)
 
     def update(self) -> bool:
-        """Обновить позицию, вернуть True, если частица ещё жива."""
         self.x += self.vx
         self.y += self.vy
         self.vy += 0.08
@@ -36,12 +34,10 @@ class Particle:
 
 @dataclass
 class Session:
-    """Модель одной сессии."""
     started_at: float
     ended_at: float
     points: int
     tab_times: Dict[str, float] = field(default_factory=dict)
-    tags: List[str] = field(default_factory=list)  # новые теги
 
     @property
     def duration(self) -> float:
@@ -66,10 +62,8 @@ class Session:
 
 
 def sessions_from_list(data_list: List[dict]) -> List[Session]:
-    """Преобразовать список словарей в список Session."""
     return [Session.from_dict(item) for item in data_list]
 
 
 def sessions_to_list(sessions: List[Session]) -> List[dict]:
-    """Преобразовать список Session в список словарей."""
     return [s.to_dict() for s in sessions]

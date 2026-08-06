@@ -7,13 +7,14 @@ from typing import Optional, List, Dict, Callable, Any
 
 import keyboard
 
-from config import RANKS
-from models import Session
-from utils import (
+from core.config import RANKS
+from core.models import Session
+from core.utils import (
     calc_level, get_productive_tab_time,
     parse_tab_title, get_active_window_title,
     calc_points_per_hour, is_productive_tab
 )
+from core.notifications import send_notification
 
 
 class TrackerLogic:
@@ -38,6 +39,7 @@ class TrackerLogic:
         # Цель на день
         self.daily_goal = 0
         self.goal_start_date = time.strftime("%Y-%m-%d")
+        self._goal_achieved_notified = False
 
         # Сессии и состояние
         self.session_active = False
@@ -54,6 +56,10 @@ class TrackerLogic:
         self.current_sprint_index = 0
         self.sprint_finished = False
         self._recording = False
+
+        # Флаги для предупреждений
+        self._sprint_warning_sent = False
+        self._break_warning_sent = False
 
         # Хоткей
         self._hotkey_registered = False
@@ -106,6 +112,7 @@ class TrackerLogic:
     def set_daily_goal(self, goal_points: int) -> None:
         self.daily_goal = max(0, goal_points)
         self.goal_start_date = time.strftime("%Y-%m-%d")
+        self._goal_achieved_notified = False
         self.on_update()
 
     def get_goal_progress(self) -> float:
@@ -169,6 +176,7 @@ class TrackerLogic:
         if self.goal_start_date != today and self.daily_goal > 0:
             self.daily_goal = 0
             self.goal_start_date = today
+            self._goal_achieved_notified = False
             self.on_update()
 
     # ---------- Рекорды ----------
@@ -186,9 +194,10 @@ class TrackerLogic:
             if sess.points > self.records["max_points_per_sprint"]:
                 self.records["max_points_per_sprint"] = sess.points
 
+        # Максимальная скорость за сессию (только если сессия длилась > 30 секунд)
         for sess in self.sessions:
             prod = get_productive_tab_time(sess.tab_times)
-            if prod > 0:
+            if prod > 30:
                 speed = sess.points / (prod / 3600)
                 if speed > self.records["max_speed_per_session"]:
                     self.records["max_speed_per_session"] = speed
@@ -197,14 +206,17 @@ class TrackerLogic:
         for sess in self.sessions:
             day = time.strftime("%Y-%m-%d", time.localtime(sess.started_at))
             prod = get_productive_tab_time(sess.tab_times)
-            if prod > 0:
-                daily_speed[day] = daily_speed.get(day, {"points": 0, "time": 0})
+            if prod > 30:
+                if day not in daily_speed:
+                    daily_speed[day] = {"points": 0, "time": 0}
                 daily_speed[day]["points"] += sess.points
                 daily_speed[day]["time"] += prod
+
         for day, data in daily_speed.items():
-            speed = data["points"] / (data["time"] / 3600) if data["time"] > 0 else 0
-            if speed > self.records["max_speed_per_day"]:
-                self.records["max_speed_per_day"] = speed
+            if data["time"] > 0:
+                speed = data["points"] / (data["time"] / 3600)
+                if speed > self.records["max_speed_per_day"]:
+                    self.records["max_speed_per_day"] = speed
 
     # ---------- Продуктивность по часам ----------
     def get_productivity_by_hour(self) -> Dict[int, Dict]:
@@ -271,6 +283,36 @@ class TrackerLogic:
 
         return predictions
 
+    # ---------- Звуки предупреждений ----------
+    def _play_warning_sound(self, pattern: str = "short"):
+        """Воспроизвести звук предупреждения (без потоков)."""
+        if not self.sound_enabled:
+            return
+
+        try:
+            import winsound
+            
+            if pattern == "short":
+                winsound.Beep(880, 150)
+                import time
+                time.sleep(0.1)
+                winsound.Beep(880, 150)
+                
+            elif pattern == "long":
+                winsound.Beep(440, 300)
+                import time
+                time.sleep(0.15)
+                winsound.Beep(660, 300)
+                
+            elif pattern == "sprint_end":
+                winsound.Beep(880, 200)
+                import time
+                time.sleep(0.1)
+                winsound.Beep(660, 200)
+                
+        except Exception:
+            pass
+
     # ---------- Сессия ----------
     def start_session(self) -> None:
         if self.session_active:
@@ -284,6 +326,9 @@ class TrackerLogic:
         self._last_tab_poll = now
         self.current_sprint_index = 0
         self.sprint_finished = False
+        self._goal_achieved_notified = False
+        self._sprint_warning_sent = False
+        self._break_warning_sent = False
 
         self._start_phase("sprint")
         self.on_beep(660, 80)
@@ -312,6 +357,8 @@ class TrackerLogic:
         self.sprint_finished = False
         self.current_sprint_index = 0
         self._recording = False
+        self._sprint_warning_sent = False
+        self._break_warning_sent = False
 
         self.on_beep(440, 100)
         self.on_update()
@@ -323,20 +370,47 @@ class TrackerLogic:
         self.current_phase = phase
         self.current_phase_start = time.time()
         self._recording = (phase == "sprint")
+        self._sprint_warning_sent = False
+        self._break_warning_sent = False
 
         if phase == "sprint":
-            self.on_beep(880, 100)
+            self._play_warning_sound("short")
+            if self.current_sprint_index + 1 <= self.sprint_repeats:
+                send_notification(
+                    "🚀 Спринт начался",
+                    f"Спринт {self.current_sprint_index + 1}/{self.sprint_repeats}\nРаботай продуктивно!"
+                )
         else:
-            self.on_beep(440, 150)
+            self._play_warning_sound("long")
+            send_notification(
+                "☕ Перерыв",
+                f"Перерыв {self.current_sprint_index + 1}/{self.sprint_repeats}\nОтдохни!"
+            )
         self.on_update()
 
     def _check_phase_complete(self) -> None:
         if not self.session_active or self.current_phase_start is None:
             return
         elapsed = time.time() - self.current_phase_start
+
         if self.current_phase == "sprint":
             duration = self.sprint_duration * 60
+            remaining = duration - elapsed
+
+            # Предупреждение за 10 секунд до конца спринта
+            if remaining <= 10 and remaining > 0 and not self._sprint_warning_sent:
+                self._sprint_warning_sent = True
+                self._play_warning_sound("short")
+                send_notification(
+                    "⏰ Спринт заканчивается!",
+                    f"Осталось {int(remaining)} секунд!"
+                )
+
+            if remaining > 10:
+                self._sprint_warning_sent = False
+
             if elapsed >= duration:
+                self._sprint_warning_sent = False
                 if self.current_sprint_index < self.sprint_repeats - 1:
                     self.current_sprint_index += 1
                     self._start_phase("break")
@@ -345,11 +419,30 @@ class TrackerLogic:
                     self.current_phase = "idle"
                     self.current_phase_start = None
                     self._recording = False
-                    self.on_beep(600, 200)
+                    self._play_warning_sound("sprint_end")
+                    send_notification(
+                        "🎉 Все спринты завершены!",
+                        f"Вы сделали {self.session_points} точек.\nОтличная работа!"
+                    )
                     self.on_update()
-        else:  # break
+        else:
             duration = self.break_duration * 60
+            remaining = duration - elapsed
+
+            # Предупреждение за 5 секунд до конца перерыва
+            if remaining <= 5 and remaining > 0 and not self._break_warning_sent:
+                self._break_warning_sent = True
+                self._play_warning_sound("long")
+                send_notification(
+                    "⏰ Перерыв заканчивается!",
+                    f"Осталось {int(remaining)} секунд!\nГотовься к работе!"
+                )
+
+            if remaining > 5:
+                self._break_warning_sent = False
+
             if elapsed >= duration:
+                self._break_warning_sent = False
                 self._start_phase("sprint")
 
     def _update_phase_progress(self) -> tuple[Optional[str], float, float]:
@@ -390,6 +483,16 @@ class TrackerLogic:
         else:
             self.on_beep(880, 60)
 
+        # Проверка достижения цели
+        if self.daily_goal > 0:
+            progress = self.get_goal_progress()
+            if progress >= 1.0 and not self._goal_achieved_notified:
+                self._goal_achieved_notified = True
+                send_notification(
+                    "🎯 Цель достигнута!",
+                    f"Вы выполнили цель на сегодня: {self.daily_goal} точек!\nМожно отдыхать."
+                )
+
         self.on_update()
 
     # ---------- Вкладки ----------
@@ -422,7 +525,6 @@ class TrackerLogic:
         if not self.session_active:
             return 0.0
         productive = get_productive_tab_time(self.tab_times)
-        # Добавляем время текущей вкладки, только если мы в спринте и вкладка продуктивная
         if self._recording and self.current_tab and is_productive_tab(self.current_tab):
             now = time.time()
             elapsed = now - self._last_tab_poll
@@ -476,20 +578,42 @@ class TrackerLogic:
             self._check_phase_complete()
 
         self.on_update()
-        
-    def recalculate_records(self):
-    # Обнуляем все рекорды
-        self.records = {
-            "max_points_per_day": 0,
-            "max_points_per_sprint": 0,
-            "max_speed_per_session": 0.0,
-            "max_speed_per_day": 0.0,
-        }
-        # Пересчитываем заново
-        self.update_records()
 
     def close(self) -> None:
         self._closing = True
         if self.session_active:
             self.stop_session()
         self.unregister_hotkey()
+
+    # ---------- Пересчёт рекордов ----------
+    def recalculate_records(self):
+        self.records = {
+            "max_points_per_day": 0,
+            "max_points_per_sprint": 0,
+            "max_speed_per_session": 0.0,
+            "max_speed_per_day": 0.0,
+        }
+        self.update_records()
+        self.on_update()
+
+    def auto_set_goal(self) -> None:
+        """Автоматически установить цель на день на основе среднего за неделю + 10%."""
+        today = time.strftime("%Y-%m-%d")
+
+        if self.goal_start_date == today and self.daily_goal > 0:
+            return
+
+        last_7_days = {}
+        for sess in self.sessions:
+            day = time.strftime("%Y-%m-%d", time.localtime(sess.started_at))
+            if day != today:
+                last_7_days[day] = last_7_days.get(day, 0) + sess.points
+
+        if len(last_7_days) < 3:
+            new_goal = 100
+        else:
+            avg = sum(last_7_days.values()) / len(last_7_days)
+            new_goal = int(math.ceil(avg * 1.1 / 10) * 10)
+            new_goal = max(50, new_goal)
+
+        self.set_daily_goal(new_goal)

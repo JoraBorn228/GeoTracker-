@@ -1,16 +1,29 @@
 """
 Глобальные константы и настройки приложения.
 """
+import sys
 from pathlib import Path
+
+# Определяем корневую папку
+if getattr(sys, 'frozen', False):
+    # Запуск из .exe
+    ROOT_DIR = Path(sys.executable).parent
+else:
+    # Запуск из Python
+    ROOT_DIR = Path(__file__).parent.parent
+
+# --- Файлы данных ---
+DATA_DIR = ROOT_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+SAVE_FILE = DATA_DIR / "progress.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
 
 # --- Размеры окна ---
 WINDOW_W = 420
 WINDOW_H = 420
 
-# --- Файл сохранения ---
-SAVE_FILE = Path(__file__).parent / "progress.json"
-
-# --- Маркеры для определения продуктивной вкладки (расширены) ---
+# --- Маркеры для определения продуктивной вкладки ---
 PRODUCTIVE_TAB_MARKERS = ("бекофис", "бэкофис", "backoffice", "яндекс", "yandex")
 
 # --- Настройки спринтов (доступные значения для выпадающих списков) ---

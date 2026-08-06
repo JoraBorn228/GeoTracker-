@@ -4,7 +4,7 @@
 import json
 from pathlib import Path
 
-SETTINGS_FILE = Path(__file__).parent / "settings.json"
+from core.config import SETTINGS_FILE
 
 DEFAULT_SETTINGS = {
     "sprint_duration": 15,

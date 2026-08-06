@@ -1,8 +1,8 @@
 {
   "points": 4568,
   "level": 354,
-  "sprint_duration": 10,
-  "break_duration": 3,
+  "sprint_duration": 1,
+  "break_duration": 1,
   "sprint_repeats": 3,
   "sessions": [
     {
@@ -273,12 +273,13 @@
       }
     }
   ],
-  "daily_goal": 2100,
-  "goal_start_date": "2026-08-05",
+  "daily_goal": 1000,
+  "goal_start_date": "2026-08-06",
   "records": {
     "max_points_per_day": 2081,
     "max_points_per_sprint": 794,
-    "max_speed_per_session": 824.8523464741055,
-    "max_speed_per_day": 806.2187462007518
-  }
+    "max_speed_per_session": 1470.8823306921188,
+    "max_speed_per_day": 1470.8823306921188
+  },
+  "active_session": null
 }
